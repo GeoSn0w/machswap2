@@ -4,7 +4,10 @@
 typedef struct {
     struct {
         /* strings kernel | grep 'Darwin' */ 
-        const char *version;
+        const char *release;
+
+        /* CPU type supported */
+        cpu_subtype_t cpu_subtype;
 
         /* basically will always be: 0xfffffff007004000 */
         uint64_t kernel_image_base;

